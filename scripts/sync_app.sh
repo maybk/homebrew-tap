@@ -100,30 +100,16 @@ cask "${app_token}" do
          arm64_linux:  "${linux_arm64_sha}",
          x86_64_linux: "${linux_amd64_sha}"
 
-  name "${name}"
-  desc "${desc}"
-  homepage "${homepage}"
-
-  livecheck do
-    url :url
-    strategy :github_latest
-  end
-
-  auto_updates true
-
   on_macos do
-    depends_on macos: ">= :${macos_min}"
-
-    url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-macos-#{arch}.dmg",
-        verified: "github.com/${repo}/"
+    url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-macos-#{arch}.dmg"
 
     app "${app_bundle}"
 
     postflight_steps do
-      system_command "/usr/bin/xattr",
-                     args: ["-rd", "com.apple.quarantine", "{{appdir}}/${app_bundle}"],
-                     writable_paths: ["${app_bundle}"],
-                     writable_base: :appdir
+      run "/usr/bin/xattr",
+          args:           ["-rd", "com.apple.quarantine", "{{appdir}}/${app_bundle}"],
+          writable_paths: ["${app_bundle}"],
+          writable_base:  :appdir
     end
 
     zap trash: [
@@ -134,17 +120,24 @@ cask "${app_token}" do
       "~/Library/Saved Application State/${bundle_id}.savedState",
     ]
   end
-
   on_linux do
-    url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-linux-#{arch}.tar.gz",
-        verified: "github.com/${repo}/"
+    url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-linux-#{arch}.tar.gz"
 
 ${linux_bins_stanza}
 
-    zap trash: [
-      "${dot_dir}",
-    ]
+    zap trash: "${dot_dir}"
   end
+
+  name "${name}"
+  desc "${desc}"
+  homepage "${homepage}"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  auto_updates true
 end
 EOF
 

@@ -12,6 +12,7 @@ for cask in "$repo_root"/Casks/*.rb; do
     ruby -c "$cask" >/dev/null
   fi
   grep -Fq 'postflight_steps do' "$cask"
+  grep -Fq 'run "/usr/bin/xattr"' "$cask"
   grep -Fq 'com.apple.quarantine' "$cask"
 done
 

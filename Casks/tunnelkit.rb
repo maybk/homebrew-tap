@@ -7,30 +7,16 @@ cask "tunnelkit" do
          arm64_linux:  "e80de751d67d6ff35fa5434d315990abcdf7bda511ff9bd2c519df82c0756d1d",
          x86_64_linux: "fdb71e130786deaf6e4f7b311f89aeb59dfe41b0ddc1a96e18fdc82028207a41"
 
-  name "TunnelKit"
-  desc "Fortinet SSL-VPN desktop and menu bar client"
-  homepage "https://github.com/maybk/tunnelkit"
-
-  livecheck do
-    url :url
-    strategy :github_latest
-  end
-
-  auto_updates true
-
   on_macos do
-    depends_on macos: ">= :big_sur"
-
-    url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-macos-#{arch}.dmg",
-        verified: "github.com/maybk/tunnelkit/"
+    url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-macos-#{arch}.dmg"
 
     app "tunnelkit.app"
 
     postflight_steps do
-      system_command "/usr/bin/xattr",
-                     args: ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"],
-                     writable_paths: ["tunnelkit.app"],
-                     writable_base: :appdir
+      run "/usr/bin/xattr",
+          args:           ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"],
+          writable_paths: ["tunnelkit.app"],
+          writable_base:  :appdir
     end
 
     zap trash: [
@@ -41,16 +27,23 @@ cask "tunnelkit" do
       "~/Library/Saved Application State/com.tunnelkit.app.savedState",
     ]
   end
-
   on_linux do
-    url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-linux-#{arch}.tar.gz",
-        verified: "github.com/maybk/tunnelkit/"
+    url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-linux-#{arch}.tar.gz"
 
     binary "tunnelkit"
     binary "tunnelkit-helper"
 
-    zap trash: [
-      "~/.tunnelkit",
-    ]
+    zap trash: "~/.tunnelkit"
   end
+
+  name "TunnelKit"
+  desc "Fortinet SSL-VPN desktop and menu bar client"
+  homepage "https://github.com/maybk/tunnelkit"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  auto_updates true
 end
