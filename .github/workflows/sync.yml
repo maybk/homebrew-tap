@@ -1,0 +1,52 @@
+name: Sync Releases
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Optional app token to sync (leave empty to sync all apps)
+        required: false
+        type: string
+  repository_dispatch:
+    types:
+      - release-published
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-manifests
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync package manifests from latest GitHub Releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_APP: ${{ inputs.app || github.event.client_payload.app || '' }}
+    steps:
+      - name: Check out tap repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Sync manifests and validate
+        run: |
+          set -euo pipefail
+          bash scripts/sync_all.sh "$TARGET_APP"
+          bash scripts/test_sync.sh
+
+      - name: Commit and push updated manifests
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Manifests are already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks bucket winget
+          git commit -m "chore: sync package manifests"
+          git push origin HEAD:main

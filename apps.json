@@ -1,0 +1,23 @@
+[
+  {
+    "token": "tunnelkit",
+    "name": "TunnelKit",
+    "repo": "maybk/tunnelkit",
+    "desc": "Fortinet SSL-VPN desktop and menu bar client",
+    "desc_zh": "简洁轻量的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端。",
+    "homepage": "https://github.com/maybk/tunnelkit",
+    "license": "MIT",
+    "macos_min": "big_sur",
+    "app_bundle": "tunnelkit.app",
+    "bundle_id": "com.tunnelkit.app",
+    "dot_dir": "~/.tunnelkit",
+    "linux_binaries": [
+      "tunnelkit",
+      "tunnelkit-helper"
+    ],
+    "windows_bin": "tunnelkit.exe",
+    "winget_id": "maybk.TunnelKit",
+    "winget_product_code": "maybkTunnelKit",
+    "asset_prefix": "tunnelkit"
+  }
+]

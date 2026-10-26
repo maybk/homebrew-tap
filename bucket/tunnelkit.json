@@ -1,0 +1,39 @@
+{
+  "version": "0.2.1",
+  "description": "Fortinet SSL-VPN desktop and menu bar client",
+  "homepage": "https://github.com/maybk/tunnelkit",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/maybk/tunnelkit/releases/download/v0.2.1/tunnelkit-0.2.1-windows-amd64.zip",
+      "hash": "d15ae749b6053738f49bdbc712436c16aa70701e47ab4efe4e63e828f2e48456"
+    },
+    "arm64": {
+      "url": "https://github.com/maybk/tunnelkit/releases/download/v0.2.1/tunnelkit-0.2.1-windows-arm64.zip",
+      "hash": "a97eea6565cc9faca8ba2ca6a046e9093cdeeea0dc012c5425e47bc147daeed6"
+    }
+  },
+  "bin": "tunnelkit.exe",
+  "shortcuts": [
+    [
+      "tunnelkit.exe",
+      "TunnelKit"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/maybk/tunnelkit"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-amd64.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-arm64.zip"
+      }
+    },
+    "hash": {
+      "url": "$baseurl/SHA256SUMS.txt"
+    }
+  }
+}
