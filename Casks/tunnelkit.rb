@@ -1,11 +1,11 @@
 cask "tunnelkit" do
   arch arm: "arm64", intel: "amd64"
 
-  version "0.2.1"
-  sha256 arm:          "f43d2123242eef412101a3634f6c61daed57acef3a85e62e8590ec895156fd60",
-         intel:        "eaf82c83e02efc7a31f5716bc399ad792b30a05cdaa4b93f338083df5c451e82",
-         arm64_linux:  "7dd70e8869b003020f64f7959d280026ce2fbbfed9be772e4d164cbd08179d88",
-         x86_64_linux: "bbf5eb546b01fb44a767b02c6b992343c2d3ea03aa77c199b407583febd92a4f"
+  version "0.2.2"
+  sha256 arm:          "ed0b4e54ce1f37d73df9cb15127e56d93d6f48d922594669160a288155e16c39",
+         intel:        "3400165604bd4de158c109da253823936cb9141c5f43e20f32acf87377916abc",
+         arm64_linux:  "e80de751d67d6ff35fa5434d315990abcdf7bda511ff9bd2c519df82c0756d1d",
+         x86_64_linux: "fdb71e130786deaf6e4f7b311f89aeb59dfe41b0ddc1a96e18fdc82028207a41"
 
   name "TunnelKit"
   desc "Fortinet SSL-VPN desktop and menu bar client"

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+
+PackageIdentifier: maybk.TunnelKit
+PackageVersion: 0.2.2
+PackageLocale: zh-CN
+ShortDescription: 简洁轻量的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端。
+ManifestType: locale
+ManifestVersion: 1.12.0
