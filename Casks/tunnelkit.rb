@@ -1,11 +1,11 @@
 cask "tunnelkit" do
   arch arm: "arm64", intel: "amd64"
 
-  version "1.0.0"
-  sha256 arm:          "c801d4e97f22ec654597fab5c5935cbfcfae520d1eb60410aeca1589a65a5b29",
-         intel:        "43828940a7b77af17cd0e834b007ccefd4fb76367232a06422fe6fd554b81b3d",
-         arm64_linux:  "d81af33ef036cd2c1910a409e3c60442936ccd66486ae03249fa354cc2ba316a",
-         x86_64_linux: "32f593a02929d12fe421301a43255d210c548c15b86091197589e8a980fff28d"
+  version "1.0.1"
+  sha256 arm:          "da52a85b67f22c3c2f5bb0e54ba5e89a9e78b438d08d75fcb04ce32fe9f09787",
+         intel:        "0d90ec06166a1f00192f2308f3924bf95bf6baeb4652fa2ccf8c20b84a1f4aba",
+         arm64_linux:  "f7f92b747d02771d906fe251d1e3016b03b5eaf4d58d33018ffd42373e5c0852",
+         x86_64_linux: "d9a5521325d8bbafd0781a5f1cb3c994ac6c2a39d4ed7a01f9e68e0ae70430f3"
 
   on_macos do
     url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-macos-#{arch}.dmg"
