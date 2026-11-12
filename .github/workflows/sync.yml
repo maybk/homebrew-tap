@@ -41,12 +41,12 @@ jobs:
       - name: Commit and push updated manifests
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain)" ]; then
+          git add Casks bucket winget
+          if git diff --cached --quiet; then
             echo "Manifests are already up to date."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks bucket winget
           git commit -m "chore: sync package manifests"
           git push origin HEAD:main

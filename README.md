@@ -10,7 +10,7 @@ Official Homebrew Tap (macOS / Linux), Scoop Bucket (Windows), and WinGet manife
 brew install --cask maybk/tap/<app>
 
 # Upgrade installed packages
-brew upgrade
+brew upgrade --cask maybk/tap/<app>
 ```
 
 ### Scoop (Windows)
@@ -33,9 +33,9 @@ winget install maybk.<App>
 
 | Package | Homebrew (`macOS` / `Linux`) | Scoop (`Windows`) | WinGet (`Windows`) | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| [TunnelKit](https://github.com/maybk/tunnelkit) | `brew install --cask maybk/tap/tunnelkit` | `scoop install maybk/tunnelkit` | `winget install maybk.TunnelKit` | Cross-platform Fortinet SSL-VPN desktop and menu bar client |
+| [TunnelKit](https://github.com/maybk/tunnelkit) | `brew install --cask maybk/tap/tunnelkit` | `scoop install maybk/tunnelkit` | `winget install maybk.TunnelKit` | Fortinet SSL-VPN desktop and menu bar client |
 
 ## Adding a New Application
 
 1. Append the application entry to [`apps.json`](./apps.json).
-2. Run `bash scripts/sync_all.sh <token>` or trigger the **Sync Releases** GitHub Action.
+2. Run `bash scripts/sync_all.sh <token>` (or trigger the **Sync Releases** GitHub Action) and verify with `bash scripts/test_sync.sh`.

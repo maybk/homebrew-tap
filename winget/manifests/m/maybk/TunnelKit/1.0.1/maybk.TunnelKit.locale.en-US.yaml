@@ -11,6 +11,12 @@ PackageUrl: https://github.com/maybk/tunnelkit
 License: MIT
 LicenseUrl: https://github.com/maybk/tunnelkit/blob/HEAD/LICENSE
 ShortDescription: Fortinet SSL-VPN desktop and menu bar client
+Tags:
+- fortigate
+- fortinet
+- network
+- sslvpn
+- vpn
 ReleaseNotesUrl: https://github.com/maybk/tunnelkit/releases/tag/v1.0.1
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0

@@ -24,5 +24,65 @@ jobs:
 
       - name: Run manifest and sync tests
         run: |
+          set -euo pipefail
           bash scripts/test_sync.sh
           git diff --check
+
+      - name: Validate Homebrew Cask style
+        run: |
+          set -euo pipefail
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            /home/linuxbrew/.linuxbrew/bin/brew update --quiet
+            HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew style Casks/*.rb
+          fi
+
+      - name: Validate Scoop and WinGet JSON Schemas
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+
+          bucket_files=(bucket/*.json)
+          if [ "${#bucket_files[@]}" -gt 0 ]; then
+            pipx run check-jsonschema \
+              --schemafile https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json \
+              "${bucket_files[@]}"
+          fi
+
+          version_files=()
+          installer_files=()
+          default_locale_files=()
+          locale_files=()
+          for wf in winget/manifests/**/*.yaml; do
+            mtype="$(awk -F': *' '$1 == "ManifestType" { sub(/\r$/, "", $2); print $2; exit }' "$wf")"
+            case "$mtype" in
+              version) version_files+=("$wf") ;;
+              installer) installer_files+=("$wf") ;;
+              defaultLocale) default_locale_files+=("$wf") ;;
+              locale) locale_files+=("$wf") ;;
+              *)
+                echo "Unknown or missing ManifestType in $wf: $mtype" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          if [ "${#version_files[@]}" -gt 0 ]; then
+            pipx run check-jsonschema \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.version.1.12.0.json \
+              "${version_files[@]}"
+          fi
+          if [ "${#installer_files[@]}" -gt 0 ]; then
+            pipx run check-jsonschema \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.installer.1.12.0.json \
+              "${installer_files[@]}"
+          fi
+          if [ "${#default_locale_files[@]}" -gt 0 ]; then
+            pipx run check-jsonschema \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.defaultLocale.1.12.0.json \
+              "${default_locale_files[@]}"
+          fi
+          if [ "${#locale_files[@]}" -gt 0 ]; then
+            pipx run check-jsonschema \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.locale.1.12.0.json \
+              "${locale_files[@]}"
+          fi

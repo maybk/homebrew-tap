@@ -1,39 +1,45 @@
 {
-  "version": "1.0.1",
-  "description": "Fortinet SSL-VPN desktop and menu bar client",
-  "homepage": "https://github.com/maybk/tunnelkit",
-  "license": "MIT",
-  "architecture": {
-    "64bit": {
-      "url": "https://github.com/maybk/tunnelkit/releases/download/v1.0.1/tunnelkit-1.0.1-windows-amd64.zip",
-      "hash": "7caa7fcd9194d8b4a9306cd76ea88d354fef98db3f1fd3df892d3e69e12d7077"
-    },
-    "arm64": {
-      "url": "https://github.com/maybk/tunnelkit/releases/download/v1.0.1/tunnelkit-1.0.1-windows-arm64.zip",
-      "hash": "bd7cd614ab7a121052650cdecdab0560ed5401c197604e2eeecb82b34ab62628"
-    }
-  },
-  "bin": "tunnelkit.exe",
-  "shortcuts": [
-    [
-      "tunnelkit.exe",
-      "TunnelKit"
-    ]
-  ],
-  "checkver": {
-    "github": "https://github.com/maybk/tunnelkit"
-  },
-  "autoupdate": {
+    "version": "1.0.1",
+    "description": "Fortinet SSL-VPN desktop and menu bar client",
+    "homepage": "https://github.com/maybk/tunnelkit",
+    "license": "MIT",
     "architecture": {
-      "64bit": {
-        "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-amd64.zip"
-      },
-      "arm64": {
-        "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-arm64.zip"
-      }
+        "64bit": {
+            "url": "https://github.com/maybk/tunnelkit/releases/download/v1.0.1/tunnelkit-1.0.1-windows-amd64.zip",
+            "hash": "7caa7fcd9194d8b4a9306cd76ea88d354fef98db3f1fd3df892d3e69e12d7077"
+        },
+        "arm64": {
+            "url": "https://github.com/maybk/tunnelkit/releases/download/v1.0.1/tunnelkit-1.0.1-windows-arm64.zip",
+            "hash": "bd7cd614ab7a121052650cdecdab0560ed5401c197604e2eeecb82b34ab62628"
+        }
     },
-    "hash": {
-      "url": "$baseurl/SHA256SUMS.txt"
+    "pre_uninstall": [
+        "Get-Process -Name 'tunnelkit' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
+        "if ($cmd -eq 'uninstall' -and (Get-Service -Name 'TunnelKitHelper' -ErrorAction SilentlyContinue) -and (Test-Path \"$dir\\tunnelkit-helper.exe\")) {",
+        "    $proc = Start-Process \"$dir\\tunnelkit-helper.exe\" -ArgumentList 'uninstall-service' -Wait -PassThru -WindowStyle Hidden",
+        "    if ($proc.ExitCode -ne 0) {",
+        "        warn \"Failed to remove 'TunnelKitHelper' service automatically. Run as Administrator: sc.exe stop TunnelKitHelper; sc.exe delete TunnelKitHelper\"",
+        "    }",
+        "}"
+    ],
+    "shortcuts": [
+        [
+            "tunnelkit.exe",
+            "TunnelKit"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-amd64.zip"
+            },
+            "arm64": {
+                "url": "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-arm64.zip"
+            }
+        },
+        "hash": {
+            "url": "$baseurl/SHA256SUMS.txt"
+        }
     }
-  }
 }

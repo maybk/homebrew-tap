@@ -5,6 +5,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 apps_file="$repo_root/apps.json"
 target_token="${1:-}"
 
+if [ -n "$target_token" ]; then
+  if ! jq -e --arg t "$target_token" 'any(.[]; .token == $t)' "$apps_file" >/dev/null; then
+    echo "Unknown app token in apps.json: $target_token" >&2
+    exit 1
+  fi
+fi
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
@@ -24,6 +31,7 @@ for token in $tokens; do
   tag_name="$(jq -r '.tag_name // empty' <<<"$release_json")"
   is_draft="$(jq -r '.draft // false' <<<"$release_json")"
   is_prerelease="$(jq -r '.prerelease // false' <<<"$release_json")"
+  release_date="$(jq -r '(.published_at // "") | if length >= 10 then .[0:10] else "" end' <<<"$release_json")"
   version="${tag_name#v}"
 
   if [ -z "$version" ] || [ "$is_draft" = "true" ] || [ "$is_prerelease" = "true" ]; then
@@ -34,11 +42,16 @@ for token in $tokens; do
   sums_file="$tmp_dir/${token}-SHA256SUMS.txt"
   sums_url="$(jq -r '.assets[] | select(.name == "SHA256SUMS.txt") | .browser_download_url' <<<"$release_json" | head -n 1)"
   if [ -n "$sums_url" ]; then
+    expected_prefix="https://github.com/${repo}/releases/download/"
+    if [[ "$sums_url" != "${expected_prefix}"* ]]; then
+      echo "Unexpected SHA256SUMS.txt download URL for $token: $sums_url" >&2
+      exit 1
+    fi
     curl -fsSL "$sums_url" -o "$sums_file"
   else
     jq -r '.assets[] | select(.digest != null and (.digest | startswith("sha256:"))) | "\(.digest | sub("^sha256:"; ""))  \(.name)"' <<<"$release_json" > "$sums_file"
   fi
 
-  bash "$repo_root/scripts/sync_app.sh" "$token" "$version" "$sums_file" "$repo_root" "$apps_file"
+  bash "$repo_root/scripts/sync_app.sh" "$token" "$version" "$sums_file" "$repo_root" "$apps_file" "$release_date"
   echo "Synced $token -> v$version"
 done

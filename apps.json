@@ -7,17 +7,42 @@
     "desc_zh": "简洁轻量的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端。",
     "homepage": "https://github.com/maybk/tunnelkit",
     "license": "MIT",
-    "macos_min": "big_sur",
-    "app_bundle": "tunnelkit.app",
+    "macos_min": "monterey",
+    "app_bundle": "TunnelKit.app",
     "bundle_id": "com.tunnelkit.app",
     "dot_dir": "~/.tunnelkit",
+    "macos_zap_delete": [
+      "/Library/Application Support/TunnelKit",
+      "/Library/PrivilegedHelperTools/com.tunnelkit.helper"
+    ],
     "linux_binaries": [
       "tunnelkit",
       "tunnelkit-helper"
     ],
+    "linux_zap_delete": [
+      "/usr/libexec/tunnelkit",
+      "/var/lib/tunnelkit"
+    ],
     "windows_bin": "tunnelkit.exe",
+    "windows_service": "TunnelKitHelper",
+    "windows_helper": "tunnelkit-helper.exe",
     "winget_id": "maybk.TunnelKit",
     "winget_product_code": "maybkTunnelKit",
+    "winget_install_location": "%ProgramFiles%\\maybk\\TunnelKit",
+    "tags": [
+      "fortigate",
+      "fortinet",
+      "network",
+      "sslvpn",
+      "vpn"
+    ],
+    "tags_zh": [
+      "fortigate",
+      "fortinet",
+      "sslvpn",
+      "vpn",
+      "网络"
+    ],
     "asset_prefix": "tunnelkit"
   }
 ]

@@ -3,6 +3,13 @@
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: 1.0.1
 PackageLocale: zh-CN
+PackageName: TunnelKit
 ShortDescription: 简洁轻量的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端。
+Tags:
+- fortigate
+- fortinet
+- sslvpn
+- vpn
+- 网络
 ManifestType: locale
 ManifestVersion: 1.12.0
