@@ -66,7 +66,7 @@ if command -v ruby >/dev/null 2>&1; then
         raise "Invalid YAML root in #{f}" unless doc.is_a?(Hash)
         raise "PackageIdentifier mismatch in #{f}" unless doc["PackageIdentifier"] == expected_id
         raise "PackageVersion mismatch in #{f}" unless doc["PackageVersion"].to_s == expected_ver
-        raise "Missing ManifestVersion in #{f}" unless doc["ManifestVersion"] == "1.12.0"
+        raise "Missing or unsupported ManifestVersion in #{f}" unless %w[1.12.0 1.28.0].include?(doc["ManifestVersion"])
         types << doc["ManifestType"]
       end
       %w[version installer defaultLocale].each do |req|

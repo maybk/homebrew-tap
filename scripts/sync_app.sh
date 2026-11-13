@@ -280,18 +280,18 @@ if [ -n "$winget_id" ] && [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && 
   arm64_upper="$(printf '%s' "$windows_arm64_setup_sha" | tr '[:lower:]' '[:upper:]')"
 
   cat > "$winget_dir/${winget_id}.yaml" <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
 
 PackageIdentifier: ${winget_id}
 PackageVersion: ${version}
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
 
   {
     cat <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 
 PackageIdentifier: ${winget_id}
 PackageVersion: ${version}
@@ -316,14 +316,14 @@ Installers:
   InstallerUrl: https://github.com/${repo}/releases/download/v${version}/${asset_prefix}-${version}-windows-arm64-setup.exe
   InstallerSha256: ${arm64_upper}
 ManifestType: installer
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
   } > "$winget_dir/${winget_id}.installer.yaml"
 
   en_tags="$(jq -r '(.tags // [])[] | "- " + .' <<<"$app_json")"
   {
     cat <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
 
 PackageIdentifier: ${winget_id}
 PackageVersion: ${version}
@@ -343,7 +343,7 @@ EOF
     cat <<EOF
 ReleaseNotesUrl: https://github.com/${repo}/releases/tag/v${version}
 ManifestType: defaultLocale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
   } > "$winget_dir/${winget_id}.locale.en-US.yaml"
 
@@ -351,7 +351,7 @@ EOF
     zh_tags="$(jq -r '(.tags_zh // [])[] | "- " + .' <<<"$app_json")"
     {
       cat <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 
 PackageIdentifier: ${winget_id}
 PackageVersion: ${version}
@@ -364,7 +364,7 @@ EOF
       fi
       cat <<EOF
 ManifestType: locale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
     } > "$winget_dir/${winget_id}.locale.zh-CN.yaml"
   fi

@@ -68,21 +68,21 @@ jobs:
 
           if [ "${#version_files[@]}" -gt 0 ]; then
             pipx run check-jsonschema \
-              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.version.1.12.0.json \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.28.0/manifest.version.1.28.0.json \
               "${version_files[@]}"
           fi
           if [ "${#installer_files[@]}" -gt 0 ]; then
             pipx run check-jsonschema \
-              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.installer.1.12.0.json \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.28.0/manifest.installer.1.28.0.json \
               "${installer_files[@]}"
           fi
           if [ "${#default_locale_files[@]}" -gt 0 ]; then
             pipx run check-jsonschema \
-              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.defaultLocale.1.12.0.json \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.28.0/manifest.defaultLocale.1.28.0.json \
               "${default_locale_files[@]}"
           fi
           if [ "${#locale_files[@]}" -gt 0 ]; then
             pipx run check-jsonschema \
-              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.12.0/manifest.locale.1.12.0.json \
+              --schemafile https://raw.githubusercontent.com/microsoft/winget-cli/master/schemas/JSON/manifests/v1.28.0/manifest.locale.1.28.0.json \
               "${locale_files[@]}"
           fi
