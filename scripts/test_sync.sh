@@ -250,6 +250,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(202, {"full_name": "maybk/winget-pkgs"})
         if p == "/repos/maybk/winget-pkgs/merge-upstream":
             st["merge_upstream_calls"] += 1
+            if st.get("workflow_scope_blocked"):
+                save_state(st)
+                return self.reply(422, {"message": "refusing to allow a Personal Access Token to create or update workflow '.github/workflows/pesterTests.yaml' without 'workflow' scope"})
             if st["merge_conflict"]:
                 save_state(st)
                 return self.reply(409, {"message": "Merge conflict"})
@@ -260,7 +263,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             assert len(data.get("tree", [])) >= 3
             return self.reply(201, {"sha": "cccccccccccccccccccccccccccccccccccccccc"})
         if p == "/repos/maybk/winget-pkgs/git/commits":
-            assert data["parents"] == [st["upstream_sha"]]
+            expected_parent = st["fork_master_sha"] if st.get("workflow_scope_blocked") else st["upstream_sha"]
+            assert data["parents"] == [expected_parent]
             return self.reply(201, {"sha": "dddddddddddddddddddddddddddddddddddddddd", "message": data["message"]})
         if p == "/repos/maybk/winget-pkgs/git/refs":
             b = data["ref"].replace("refs/heads/", "", 1)
@@ -292,6 +296,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         data = self.read_json()
         if p == "/repos/maybk/winget-pkgs/git/refs/heads/master":
             st["force_patch_calls"] += 1
+            if st.get("workflow_scope_blocked"):
+                save_state(st)
+                return self.reply(422, {"message": "refusing to allow a Personal Access Token to create or update workflow '.github/workflows/pesterTests.yaml' without 'workflow' scope"})
             st["fork_master_sha"] = data["sha"]
             save_state(st)
             return self.reply(200, {"object": {"sha": data["sha"]}})
@@ -390,5 +397,30 @@ PY
     .fork_master_sha == "ffffffffffffffffffffffffffffffffffffffff" and
     (.prs | length == 3) and
     .prs[2].head == "maybk:maybk.TunnelKit-1.1.0-r2"
+  ' "$state_file" >/dev/null
+
+  # 7. When upstream modifies .github/workflows and PAT only has public_repo (no workflow scope), gracefully falls back to fork master SHA and still submits PR cleanly
+  sums_120="$tmp_dir/tunnelkit-1.2.0-SHA256SUMS.txt"
+  sed 's/-1\.0\.0-/-1.2.0-/g' "$tmp_dir/tunnelkit-SHA256SUMS.txt" > "$sums_120"
+  bash "$repo_root/scripts/sync_app.sh" tunnelkit "1.2.0" "$sums_120" "$tmp_dir" "$apps_file" "2026-11-13"
+  jq '
+    .prs[2].state = "closed" |
+    .prs[2].merged_at = "2026-11-13T09:00:00Z" |
+    .upstream_paths = ["manifests/m/maybk/TunnelKit", "manifests/m/maybk/TunnelKit/1.0.0", "manifests/m/maybk/TunnelKit/1.1.0"] |
+    .upstream_sha = "1212121212121212121212121212121212121212" |
+    .merge_conflict = false |
+    .workflow_scope_blocked = true
+  ' "$state_file" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+  stage7_out="$(
+    WINGET_GITHUB_TOKEN="mock-test-token" WINGET_GITHUB_API_URL="$mock_api" WINGET_MANIFESTS_ROOT="$tmp_dir" WINGET_APPS_FILE="$apps_file" \
+      bash "$repo_root/scripts/submit_winget_prs.sh" tunnelkit
+  )"
+  grep -Fq "token lacks workflow scope" <<<"$stage7_out"
+  jq -e '
+    .fork_master_sha == "ffffffffffffffffffffffffffffffffffffffff" and
+    (.branches | has("maybk.TunnelKit-1.1.0-r2") | not) and
+    (.prs | length == 4) and
+    .prs[3].title == "Update: maybk.TunnelKit to 1.2.0" and
+    .prs[3].head == "maybk:maybk.TunnelKit-1.2.0"
   ' "$state_file" >/dev/null
 fi

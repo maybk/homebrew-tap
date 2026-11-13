@@ -157,11 +157,16 @@ ensure_fork_synced() {
 
   local fork_sha
   fork_sha="$(jq -r '.object.sha // empty' "$resp_file")"
+  local base_sha="$upstream_sha"
   if [ "$fork_sha" != "$upstream_sha" ]; then
     local merge_payload="$tmp_dir/merge_upstream.json"
     jq -n --arg branch "$UPSTREAM_DEFAULT_BRANCH" '{branch: $branch}' > "$merge_payload"
     api_request POST "/repos/${fork_repo}/merge-upstream" "$merge_payload"
-    if [[ "$API_STATUS" != "200" && "$API_STATUS" != "409" && "$API_STATUS" != "422" ]]; then
+    local merge_msg=""
+    if [ -s "$resp_file" ]; then
+      merge_msg="$(jq -r '.message // empty' "$resp_file" 2>/dev/null || true)"
+    fi
+    if [[ "$API_STATUS" != "200" && "$API_STATUS" != "409" && "$API_STATUS" != "422" && ! ( "$API_STATUS" == "403" && "$merge_msg" == *workflow* ) ]]; then
       api_expect_2xx "POST /repos/${fork_repo}/merge-upstream"
     fi
 
@@ -173,19 +178,31 @@ ensure_fork_synced() {
       local force_payload="$tmp_dir/force_ref.json"
       jq -n --arg sha "$upstream_sha" '{sha: $sha, force: true}' > "$force_payload"
       api_request PATCH "/repos/${fork_repo}/git/refs/heads/${UPSTREAM_DEFAULT_BRANCH}" "$force_payload"
-      api_expect_2xx "PATCH fork ref ${UPSTREAM_DEFAULT_BRANCH}"
+      local patch_msg=""
+      if [ -s "$resp_file" ]; then
+        patch_msg="$(jq -r '.message // empty' "$resp_file" 2>/dev/null || true)"
+      fi
+      if [[ "$API_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+        echo "Synced ${fork_repo}:${UPSTREAM_DEFAULT_BRANCH} -> ${upstream_sha:0:10}"
+      elif [[ ( "$API_STATUS" == "422" || "$API_STATUS" == "403" ) && ( "$patch_msg" == *workflow* || "$merge_msg" == *workflow* ) && "$fork_sha" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "Notice: upstream modified .github/workflows and token lacks workflow scope; keeping ${fork_repo}:${UPSTREAM_DEFAULT_BRANCH} at ${fork_sha:0:10} and basing PR commit on it."
+        base_sha="$fork_sha"
+      else
+        api_expect_2xx "PATCH fork ref ${UPSTREAM_DEFAULT_BRANCH}"
+      fi
+    else
+      echo "Synced ${fork_repo}:${UPSTREAM_DEFAULT_BRANCH} -> ${upstream_sha:0:10}"
     fi
-    echo "Synced ${fork_repo}:${UPSTREAM_DEFAULT_BRANCH} -> ${upstream_sha:0:10}"
   fi
 
-  api_request GET "/repos/${fork_repo}/git/commits/${upstream_sha}"
-  api_expect_2xx "GET commit ${upstream_sha}"
+  api_request GET "/repos/${fork_repo}/git/commits/${base_sha}"
+  api_expect_2xx "GET commit ${base_sha}"
   SYNCED_BASE_TREE_SHA="$(jq -r '.tree.sha // empty' "$resp_file")"
   if [[ ! "$SYNCED_BASE_TREE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "Invalid base tree SHA for ${upstream_sha}" >&2
+    echo "Invalid base tree SHA for ${base_sha}" >&2
     exit 1
   fi
-  SYNCED_UPSTREAM_SHA="$upstream_sha"
+  SYNCED_UPSTREAM_SHA="$base_sha"
 }
 
 regex_escape() {
