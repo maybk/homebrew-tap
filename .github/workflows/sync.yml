@@ -9,6 +9,11 @@ on:
         description: Optional app token to sync (leave empty to sync all apps)
         required: false
         type: string
+      force_winget_retry:
+        description: Re-submit WinGet PR even if a prior PR for the same version was closed unmerged
+        required: false
+        default: false
+        type: boolean
   repository_dispatch:
     types:
       - release-published
@@ -44,9 +49,17 @@ jobs:
           git add Casks bucket winget
           if git diff --cached --quiet; then
             echo "Manifests are already up to date."
-            exit 0
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore: sync package manifests"
+            git push origin HEAD:main
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: sync package manifests"
-          git push origin HEAD:main
+
+      - name: Submit WinGet PRs to microsoft/winget-pkgs
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          FORCE_WINGET_RETRY: ${{ inputs.force_winget_retry == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          bash scripts/submit_winget_prs.sh "$TARGET_APP" "$FORCE_WINGET_RETRY"

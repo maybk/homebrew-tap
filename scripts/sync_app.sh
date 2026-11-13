@@ -272,9 +272,9 @@ jq --indent 4 -n \
 
 if [ -n "$winget_id" ] && [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$windows_arm64_setup_sha" =~ ^[0-9a-f]{64}$ ]]; then
   publisher="${winget_id%%.*}"
-  pkg_name="${winget_id#*.}"
+  pkg_subpath="${winget_id//.//}"
   first_char="$(printf '%s' "$publisher" | cut -c1 | tr '[:upper:]' '[:lower:]')"
-  winget_dir="$out_dir/winget/manifests/${first_char}/${publisher}/${pkg_name}/${version}"
+  winget_dir="$out_dir/winget/manifests/${first_char}/${pkg_subpath}/${version}"
   mkdir -p "$winget_dir"
   amd64_upper="$(printf '%s' "$windows_amd64_setup_sha" | tr '[:lower:]' '[:upper:]')"
   arm64_upper="$(printf '%s' "$windows_arm64_setup_sha" | tr '[:lower:]' '[:upper:]')"
