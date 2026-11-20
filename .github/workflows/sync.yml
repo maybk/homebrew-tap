@@ -37,6 +37,11 @@ jobs:
       - name: Check out tap repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
       - name: Sync manifests and validate
         run: |
           set -euo pipefail
@@ -67,3 +72,10 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/submit_winget_prs.sh "$TARGET_APP" "$FORCE_WINGET_RETRY"
+
+      - name: Publish npm packages
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash scripts/publish_npm.sh "$TARGET_APP"

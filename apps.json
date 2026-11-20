@@ -56,6 +56,10 @@
     "license": "MIT",
     "bin": "veri",
     "windows_bin": "veri.exe",
+    "npm": {
+      "package": "@maybk/veri",
+      "bin": "veri"
+    },
     "winget_id": "maybk.Veri",
     "winget_installer_type": "portable",
     "tags": [

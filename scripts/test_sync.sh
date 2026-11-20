@@ -14,6 +14,12 @@ jq -e '
   all(.[]; (.token | type == "string" and test("^[a-z0-9-]+$")) and
            ((.type // "cask") | . == "cask" or . == "formula") and
            ((.winget_installer_type // "nullsoft") | . == "nullsoft" or . == "portable") and
+           ((.npm == null) or (
+             (.npm | type == "object") and
+             ((.type // "cask") == "formula") and
+             (.npm.package | type == "string" and test("^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$")) and
+             ((.npm.bin // .bin // .token) | type == "string" and test("^[a-zA-Z0-9._-]+$"))
+           )) and
            (.name | type == "string" and length > 0) and
            (.repo | type == "string" and test("^[^/]+/[^/]+$")) and
            (.desc | type == "string" and length > 0) and
@@ -89,11 +95,14 @@ fi
 
 tmp_dir="$(mktemp -d)"
 mock_pid=""
+npm_mock_pid=""
 cleanup() {
-  if [ -n "$mock_pid" ]; then
-    kill "$mock_pid" >/dev/null 2>&1 || true
-    wait "$mock_pid" >/dev/null 2>&1 || true
-  fi
+  for pid in "$mock_pid" "$npm_mock_pid"; do
+    if [ -n "$pid" ]; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
+    fi
+  done
   rm -rf "$tmp_dir"
 }
 trap cleanup EXIT
@@ -463,4 +472,276 @@ PY
     .prs[3].title == "Update: maybk.TunnelKit to 1.2.0" and
     .prs[3].head == "maybk:maybk.TunnelKit-1.2.0"
   ' "$state_file" >/dev/null
+fi
+
+# Test publish_npm.sh end-to-end with a local mock Release + npm Registry server and real launcher smoke test
+if command -v python3 >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  npm_root="$tmp_dir/npm-test"
+  npm_assets="$npm_root/assets"
+  npm_manifests="$npm_root/manifests"
+  npm_staged="$npm_root/staged"
+  npm_state="$npm_root/npm_state.json"
+  npm_port_file="$npm_root/npm_port.txt"
+  mkdir -p "$npm_assets/maybk/veri/releases/download/v1.0.0" "$npm_assets/maybk/veri/releases/download/v1.1.0" "$npm_manifests"
+
+  # Build synthetic 6-platform release archives (1.0.0 & 1.1.0) + matching Formula/Scoop manifests
+  python3 - "$npm_assets" "$npm_root" <<'PY'
+import hashlib, io, pathlib, stat, tarfile, zipfile, sys
+
+assets_root = pathlib.Path(sys.argv[1])
+out_root = pathlib.Path(sys.argv[2])
+
+unix_bin = b"""#!/usr/bin/env sh
+if [ "${1:-}" = "--exit-code" ]; then
+  echo "mock-stderr-code-${2:-1}" >&2
+  exit "${2:-1}"
+fi
+echo "mock-veri-output: $*"
+"""
+win_bin = b"MZmock-windows-binary-payload"
+license_txt = b"MIT License\n"
+readme_en = b"""# veri
+
+<img src="assets/demo-en.svg" alt="demo">
+
+See [Usage Guide](./docs/guide/usage.md) and [Diagram](./assets/arch.png).
+"""
+
+def build_release(ver):
+    rel_dir = assets_root / "maybk" / "veri" / "releases" / "download" / f"v{ver}"
+    sums = []
+    for suffix in ("darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"):
+        fname = f"veri-{ver}-{suffix}.tar.gz"
+        fpath = rel_dir / fname
+        with tarfile.open(fpath, "w:gz") as tf:
+            for name, data, mode in [
+                ("veri", unix_bin, 0o755),
+                ("LICENSE", license_txt, 0o644),
+                ("README.en.md", readme_en, 0o644),
+            ]:
+                ti = tarfile.TarInfo(name=name)
+                ti.size = len(data)
+                ti.mode = mode
+                tf.addfile(ti, io.BytesIO(data))
+        digest = hashlib.sha256(fpath.read_bytes()).hexdigest()
+        sums.append(f"{digest}  {fname}")
+
+    for suffix in ("windows-amd64", "windows-arm64"):
+        fname = f"veri-{ver}-{suffix}.zip"
+        fpath = rel_dir / fname
+        with zipfile.ZipFile(fpath, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("veri.exe", win_bin)
+            zf.writestr("LICENSE", license_txt)
+            zf.writestr("README.en.md", readme_en)
+        digest = hashlib.sha256(fpath.read_bytes()).hexdigest()
+        sums.append(f"{digest}  {fname}")
+
+    (out_root / f"veri-{ver}-SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
+
+build_release("1.0.0")
+build_release("1.1.0")
+PY
+
+  bash "$repo_root/scripts/sync_app.sh" veri "1.0.0" "$npm_root/veri-1.0.0-SHA256SUMS.txt" "$npm_manifests" "$apps_file" "2026-11-20"
+
+  cat > "$npm_state" <<'EOF'
+{
+  "packages": {},
+  "publish_order": [],
+  "download_count": 0,
+  "tamper_archive": false
+}
+EOF
+
+  python3 - "$npm_state" "$npm_port_file" "$npm_assets" <<'PY' &
+import base64, http.server, io, json, pathlib, sys, tarfile, urllib.parse
+
+state_path = pathlib.Path(sys.argv[1])
+port_path = pathlib.Path(sys.argv[2])
+assets_root = pathlib.Path(sys.argv[3])
+
+def load_state():
+    return json.loads(state_path.read_text())
+
+def save_state(st):
+    state_path.write_text(json.dumps(st, indent=2))
+
+class NpmMockHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def reply_json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        st = load_state()
+        parsed = urllib.parse.urlparse(self.path)
+        rel_path = parsed.path.lstrip("/")
+
+        if rel_path.startswith("maybk/veri/releases/download/"):
+            target = assets_root / rel_path
+            if not target.is_file():
+                return self.reply_json(404, {"error": "not found"})
+            st["download_count"] += 1
+            save_state(st)
+            data = target.read_bytes()
+            if st.get("tamper_archive"):
+                data = data + b"TAMPERED"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        pkg_name = urllib.parse.unquote(rel_path)
+        if pkg_name in st["packages"]:
+            return self.reply_json(200, {"name": pkg_name, "versions": st["packages"][pkg_name]})
+        return self.reply_json(404, {"error": "Not found"})
+
+    def do_PUT(self):
+        if self.headers.get("Authorization") != "Bearer mock-npm-token":
+            return self.reply_json(401, {"error": "Unauthorized"})
+        n = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(n).decode())
+        pkg_name = urllib.parse.unquote(urllib.parse.urlparse(self.path).path.lstrip("/"))
+        versions = payload.get("versions", {})
+        if not versions:
+            return self.reply_json(400, {"error": "Missing versions"})
+        ver = next(iter(versions.keys()))
+        meta = versions[ver]
+
+        # Inspect uploaded tarball for executable bit on unix binaries & rewritten README links on main pkg
+        attachments = payload.get("_attachments", {})
+        tar_files = {}
+        for att in attachments.values():
+            raw_tgz = base64.b64decode(att["data"])
+            with tarfile.open(fileobj=io.BytesIO(raw_tgz), mode="r:gz") as tf:
+                for m in tf.getmembers():
+                    tar_files[m.name] = m.mode
+                    if m.name == "package/README.md":
+                        meta["_readme_text"] = tf.extractfile(m).read().decode("utf-8")
+        meta["_tar_files"] = tar_files
+
+        st = load_state()
+        pkg_vers = st["packages"].setdefault(pkg_name, {})
+        if ver in pkg_vers:
+            return self.reply_json(409, {"error": "Conflict"})
+        pkg_vers[ver] = meta
+        st["publish_order"].append(f"{pkg_name}@{ver}")
+        save_state(st)
+        return self.reply_json(201, {"ok": True, "id": pkg_name, "rev": "1-mock"})
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), NpmMockHandler)
+port_path.write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+  npm_mock_pid="$!"
+  for _ in $(seq 1 30); do
+    [ -s "$npm_port_file" ] && break
+    sleep 0.05
+  done
+  npm_mock_port="$(cat "$npm_port_file")"
+  npm_mock_url="http://127.0.0.1:${npm_mock_port}"
+
+  # 1. Missing NPM_TOKEN gracefully skips
+  NPM_TOKEN="" NPM_APPS_FILE="$apps_file" NPM_MANIFESTS_ROOT="$npm_manifests" \
+    bash "$repo_root/scripts/publish_npm.sh" veri | grep -Fq "Skipping npm publish"
+
+  # 2. Tampered archive SHA-256 fails fast with zero publishes
+  jq '.tamper_archive = true' "$npm_state" > "$npm_state.tmp" && mv "$npm_state.tmp" "$npm_state"
+  if NPM_TOKEN="mock-npm-token" NPM_APPS_FILE="$apps_file" NPM_MANIFESTS_ROOT="$npm_manifests" \
+      NPM_REGISTRY_URL="$npm_mock_url" NPM_RELEASE_BASE_URL="$npm_mock_url" NPM_RETRY_SLEEP_SEC="0.05" \
+      bash "$repo_root/scripts/publish_npm.sh" veri >/dev/null 2>&1; then
+    echo "Expected publish_npm.sh to abort on SHA-256 mismatch" >&2
+    exit 1
+  fi
+  jq -e '(.publish_order | length == 0)' "$npm_state" >/dev/null
+
+  # 3. Clean 1.0.0 publish: 6 platform subpackages first, main package last
+  jq '.tamper_archive = false | .download_count = 0' "$npm_state" > "$npm_state.tmp" && mv "$npm_state.tmp" "$npm_state"
+  NPM_TOKEN="mock-npm-token" NPM_APPS_FILE="$apps_file" NPM_MANIFESTS_ROOT="$npm_manifests" \
+    NPM_REGISTRY_URL="$npm_mock_url" NPM_RELEASE_BASE_URL="$npm_mock_url" NPM_RETRY_SLEEP_SEC="0.05" \
+    NPM_OUTPUT_DIR="$npm_staged" \
+    bash "$repo_root/scripts/publish_npm.sh" veri
+
+  jq -e '
+    (.publish_order | length == 7) and
+    (.publish_order[6] == "@maybk/veri@1.0.0") and
+    (.packages["@maybk/veri"]["1.0.0"].bin == {"veri": "bin/veri.js"}) and
+    (.packages["@maybk/veri"]["1.0.0"].optionalDependencies | length == 6) and
+    (.packages["@maybk/veri"]["1.0.0"].scripts == null) and
+    (.packages["@maybk/veri"]["1.0.0"]._readme_text | contains("https://raw.githubusercontent.com/maybk/veri/v1.0.0/assets/demo-en.svg")) and
+    (.packages["@maybk/veri"]["1.0.0"]._readme_text | contains("https://github.com/maybk/veri/blob/v1.0.0/docs/guide/usage.md")) and
+    (.packages["@maybk/veri-darwin-arm64"]["1.0.0"].os == ["darwin"]) and
+    (.packages["@maybk/veri-darwin-arm64"]["1.0.0"].cpu == ["arm64"]) and
+    (.packages["@maybk/veri-darwin-arm64"]["1.0.0"].preferUnplugged == true) and
+    (.packages["@maybk/veri-darwin-arm64"]["1.0.0"].scripts == null) and
+    ((.packages["@maybk/veri-darwin-arm64"]["1.0.0"]._tar_files["package/bin/veri"] // 0) >= 493) and
+    (.packages["@maybk/veri-win32-x64"]["1.0.0"].os == ["win32"]) and
+    (.packages["@maybk/veri-win32-x64"]["1.0.0"]._tar_files | has("package/bin/veri.exe"))
+  ' "$npm_state" >/dev/null
+
+  # 4. Real Node.js launcher execution smoke test (current host platform/arch)
+  host_key="$(node -e 'console.log(`${process.platform}-${process.arch}`)')"
+  if [ -d "$npm_staged/$host_key" ]; then
+    smoke_nm="$npm_root/smoke/node_modules/@maybk"
+    mkdir -p "$smoke_nm"
+    cp -R "$npm_staged/main" "$smoke_nm/veri"
+    cp -R "$npm_staged/$host_key" "$smoke_nm/veri-$host_key"
+
+    smoke_out="$(node "$smoke_nm/veri/bin/veri.js" --hello world)"
+    [ "$smoke_out" = "mock-veri-output: --hello world" ]
+
+    set +e
+    smoke_err="$(node "$smoke_nm/veri/bin/veri.js" --exit-code 3 2>&1 >/dev/null)"
+    smoke_rc="$?"
+    set -e
+    [ "$smoke_rc" -eq 3 ]
+    grep -Fq "mock-stderr-code-3" <<<"$smoke_err"
+
+    # Missing optional platform package exits cleanly with helpful stderr and empty stdout
+    rm -rf "$smoke_nm/veri-$host_key"
+    set +e
+    missing_out="$(node "$smoke_nm/veri/bin/veri.js" 2>"$npm_root/missing.err")"
+    missing_rc="$?"
+    set -e
+    [ "$missing_rc" -eq 1 ]
+    [ -z "$missing_out" ]
+    grep -Fq -- "--no-optional" "$npm_root/missing.err"
+  fi
+
+  # 5. Re-run for already-published 1.0.0 is 100% idempotent (0 downloads, 0 publishes)
+  prev_downloads="$(jq -r '.download_count' "$npm_state")"
+  NPM_TOKEN="mock-npm-token" NPM_APPS_FILE="$apps_file" NPM_MANIFESTS_ROOT="$npm_manifests" \
+    NPM_REGISTRY_URL="$npm_mock_url" NPM_RELEASE_BASE_URL="$npm_mock_url" NPM_RETRY_SLEEP_SEC="0.05" \
+    bash "$repo_root/scripts/publish_npm.sh" veri | grep -Fq "already published"
+  jq -e --argjson prev "$prev_downloads" '(.publish_order | length == 7) and (.download_count == $prev)' "$npm_state" >/dev/null
+
+  # 6. Partial-failure resume for 1.1.0: pre-seed 2 subpackages, verify only remaining 4 subpackages + main publish
+  bash "$repo_root/scripts/sync_app.sh" veri "1.1.0" "$npm_root/veri-1.1.0-SHA256SUMS.txt" "$npm_manifests" "$apps_file" "2026-11-21"
+  jq '
+    .packages["@maybk/veri-darwin-arm64"]["1.1.0"] = {"version": "1.1.0"} |
+    .packages["@maybk/veri-darwin-x64"]["1.1.0"] = {"version": "1.1.0"}
+  ' "$npm_state" > "$npm_state.tmp" && mv "$npm_state.tmp" "$npm_state"
+
+  NPM_TOKEN="mock-npm-token" NPM_APPS_FILE="$apps_file" NPM_MANIFESTS_ROOT="$npm_manifests" \
+    NPM_REGISTRY_URL="$npm_mock_url" NPM_RELEASE_BASE_URL="$npm_mock_url" NPM_RETRY_SLEEP_SEC="0.05" \
+    bash "$repo_root/scripts/publish_npm.sh" veri
+
+  jq -e '
+    (.publish_order | length == 12) and
+    (.publish_order[7:12] == [
+      "@maybk/veri-linux-arm64@1.1.0",
+      "@maybk/veri-linux-x64@1.1.0",
+      "@maybk/veri-win32-x64@1.1.0",
+      "@maybk/veri-win32-arm64@1.1.0",
+      "@maybk/veri@1.1.0"
+    ])
+  ' "$npm_state" >/dev/null
 fi
