@@ -30,6 +30,7 @@ if [ ! -f "$sums_file" ]; then
 fi
 
 app_json="$(jq -cer --arg token "$app_token" '.[] | select(.token == $token)' "$apps_file")"
+app_type="$(jq -r '.type // "cask"' <<<"$app_json")"
 name="$(jq -r '.name' <<<"$app_json")"
 repo="$(jq -r '.repo' <<<"$app_json")"
 desc="$(jq -r '.desc' <<<"$app_json")"
@@ -37,16 +38,28 @@ desc_zh="$(jq -r '.desc_zh // empty' <<<"$app_json")"
 homepage="$(jq -r '.homepage' <<<"$app_json")"
 license="$(jq -r '.license' <<<"$app_json")"
 macos_min="$(jq -r '.macos_min // empty' <<<"$app_json")"
-app_bundle="$(jq -r '.app_bundle' <<<"$app_json")"
-bundle_id="$(jq -r '.bundle_id' <<<"$app_json")"
-dot_dir="$(jq -r '.dot_dir' <<<"$app_json")"
+app_bundle="$(jq -r '.app_bundle // empty' <<<"$app_json")"
+bundle_id="$(jq -r '.bundle_id // empty' <<<"$app_json")"
+dot_dir="$(jq -r '.dot_dir // empty' <<<"$app_json")"
+cli_bin="$(jq -r '.bin // .token' <<<"$app_json")"
 windows_bin="$(jq -r '.windows_bin' <<<"$app_json")"
 windows_service="$(jq -r '.windows_service // empty' <<<"$app_json")"
 windows_helper="$(jq -r '.windows_helper // empty' <<<"$app_json")"
 winget_id="$(jq -r '.winget_id // empty' <<<"$app_json")"
+winget_installer_type="$(jq -r '.winget_installer_type // "nullsoft"' <<<"$app_json")"
 winget_product_code="$(jq -r '.winget_product_code // empty' <<<"$app_json")"
 winget_install_location="$(jq -r '.winget_install_location // empty' <<<"$app_json")"
 asset_prefix="$(jq -r '.asset_prefix' <<<"$app_json")"
+
+if [ "$app_type" != "cask" ] && [ "$app_type" != "formula" ]; then
+  echo "Unsupported app type for $app_token: $app_type (expected cask or formula)" >&2
+  exit 1
+fi
+
+if [ "$winget_installer_type" != "nullsoft" ] && [ "$winget_installer_type" != "portable" ]; then
+  echo "Unsupported winget_installer_type for $app_token: $winget_installer_type (expected nullsoft or portable)" >&2
+  exit 1
+fi
 
 extract_sum() {
   local asset="$1"
@@ -84,14 +97,24 @@ extract_optional_sum() {
   ' "$sums_file"
 }
 
-macos_arm64_sha="$(extract_sum "${asset_prefix}-${version}-macos-arm64.dmg")"
-macos_amd64_sha="$(extract_sum "${asset_prefix}-${version}-macos-amd64.dmg")"
 linux_arm64_sha="$(extract_sum "${asset_prefix}-${version}-linux-arm64.tar.gz")"
 linux_amd64_sha="$(extract_sum "${asset_prefix}-${version}-linux-amd64.tar.gz")"
 windows_amd64_sha="$(extract_sum "${asset_prefix}-${version}-windows-amd64.zip")"
 windows_arm64_sha="$(extract_sum "${asset_prefix}-${version}-windows-arm64.zip")"
 windows_amd64_setup_sha="$(extract_optional_sum "${asset_prefix}-${version}-windows-amd64-setup.exe")"
 windows_arm64_setup_sha="$(extract_optional_sum "${asset_prefix}-${version}-windows-arm64-setup.exe")"
+
+formula_class_name() {
+  awk -F'[-_]' '{
+    out = ""
+    for (i = 1; i <= NF; i++) {
+      if (length($i) > 0) {
+        out = out toupper(substr($i, 1, 1)) substr($i, 2)
+      }
+    }
+    print out
+  }' <<<"$1"
+}
 
 format_ruby_list() {
   local pad="$1"
@@ -130,31 +153,125 @@ render_zap_stanza() {
   fi
 }
 
-linux_bins_stanza="$(
-  jq -r '.linux_binaries[] | "    binary \"" + . + "\""' <<<"$app_json"
-)"
+mkdir -p "$out_dir/bucket"
 
-macos_zap_stanza="$(
-  render_zap_stanza "    " "$(jq -c '.macos_zap_delete // []' <<<"$app_json")" \
-    "${dot_dir}" \
-    "~/Library/Application Support/${bundle_id}" \
-    "~/Library/Caches/${bundle_id}" \
-    "~/Library/Preferences/${bundle_id}.plist" \
-    "~/Library/Saved Application State/${bundle_id}.savedState"
-)"
+if [ "$app_type" = "formula" ]; then
+  darwin_arm64_sha="$(extract_sum "${asset_prefix}-${version}-darwin-arm64.tar.gz")"
+  darwin_amd64_sha="$(extract_sum "${asset_prefix}-${version}-darwin-amd64.tar.gz")"
+  class_name="$(formula_class_name "$app_token")"
 
-linux_zap_stanza="$(
-  render_zap_stanza "    " "$(jq -c '.linux_zap_delete // []' <<<"$app_json")" "${dot_dir}"
-)"
+  mkdir -p "$out_dir/Formula"
+  cat > "$out_dir/Formula/${app_token}.rb" <<EOF
+class ${class_name} < Formula
+  desc "${desc}"
+  homepage "${homepage}"
+  version "${version}"
+  license "${license}"
 
-macos_depends_stanza=""
-if [ -n "$macos_min" ]; then
-  macos_depends_stanza=$'\n'"    depends_on macos: :${macos_min}"$'\n'
-fi
+  on_macos do
+    on_arm do
+      url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-darwin-arm64.tar.gz"
+      sha256 "${darwin_arm64_sha}"
+    end
 
-mkdir -p "$out_dir/Casks" "$out_dir/bucket"
+    on_intel do
+      url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-darwin-amd64.tar.gz"
+      sha256 "${darwin_amd64_sha}"
+    end
+  end
 
-cat > "$out_dir/Casks/${app_token}.rb" <<EOF
+  on_linux do
+    on_arm do
+      url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-linux-arm64.tar.gz"
+      sha256 "${linux_arm64_sha}"
+    end
+
+    on_intel do
+      url "https://github.com/${repo}/releases/download/v#{version}/${asset_prefix}-#{version}-linux-amd64.tar.gz"
+      sha256 "${linux_amd64_sha}"
+    end
+  end
+
+  def install
+    bin.install "${cli_bin}"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/${cli_bin} version")
+  end
+end
+EOF
+
+  jq --indent 4 -n \
+    --arg version "$version" \
+    --arg desc "$desc" \
+    --arg homepage "$homepage" \
+    --arg license "$license" \
+    --arg repo "$repo" \
+    --arg asset_prefix "$asset_prefix" \
+    --arg windows_bin "$windows_bin" \
+    --arg amd64_sha "$windows_amd64_sha" \
+    --arg arm64_sha "$windows_arm64_sha" \
+    '{
+      version: $version,
+      description: $desc,
+      homepage: $homepage,
+      license: $license,
+      architecture: {
+        "64bit": {
+          url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-amd64.zip"),
+          hash: $amd64_sha
+        },
+        "arm64": {
+          url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-arm64.zip"),
+          hash: $arm64_sha
+        }
+      },
+      bin: $windows_bin,
+      checkver: (if $homepage == ("https://github.com/" + $repo) then "github" else { github: ("https://github.com/" + $repo) } end),
+      autoupdate: {
+        architecture: {
+          "64bit": {
+            url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-amd64.zip")
+          },
+          "arm64": {
+            url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-arm64.zip")
+          }
+        },
+        hash: {
+          url: "$baseurl/SHA256SUMS.txt"
+        }
+      }
+    }' > "$out_dir/bucket/${app_token}.json"
+else
+  macos_arm64_sha="$(extract_sum "${asset_prefix}-${version}-macos-arm64.dmg")"
+  macos_amd64_sha="$(extract_sum "${asset_prefix}-${version}-macos-amd64.dmg")"
+
+  linux_bins_stanza="$(
+    jq -r '.linux_binaries[] | "    binary \"" + . + "\""' <<<"$app_json"
+  )"
+
+  macos_zap_stanza="$(
+    render_zap_stanza "    " "$(jq -c '.macos_zap_delete // []' <<<"$app_json")" \
+      "${dot_dir}" \
+      "~/Library/Application Support/${bundle_id}" \
+      "~/Library/Caches/${bundle_id}" \
+      "~/Library/Preferences/${bundle_id}.plist" \
+      "~/Library/Saved Application State/${bundle_id}.savedState"
+  )"
+
+  linux_zap_stanza="$(
+    render_zap_stanza "    " "$(jq -c '.linux_zap_delete // []' <<<"$app_json")" "${dot_dir}"
+  )"
+
+  macos_depends_stanza=""
+  if [ -n "$macos_min" ]; then
+    macos_depends_stanza=$'\n'"    depends_on macos: :${macos_min}"$'\n'
+  fi
+
+  mkdir -p "$out_dir/Casks"
+
+  cat > "$out_dir/Casks/${app_token}.rb" <<EOF
 cask "${app_token}" do
   arch arm: "arm64", intel: "amd64"
 
@@ -201,83 +318,91 @@ ${linux_zap_stanza}
 end
 EOF
 
-windows_proc="${windows_bin%.exe}"
-jq --indent 4 -n \
-  --arg version "$version" \
-  --arg desc "$desc" \
-  --arg homepage "$homepage" \
-  --arg license "$license" \
-  --arg repo "$repo" \
-  --arg asset_prefix "$asset_prefix" \
-  --arg name "$name" \
-  --arg windows_bin "$windows_bin" \
-  --arg windows_proc "$windows_proc" \
-  --arg windows_service "$windows_service" \
-  --arg windows_helper "$windows_helper" \
-  --arg amd64_sha "$windows_amd64_sha" \
-  --arg arm64_sha "$windows_arm64_sha" \
-  '
-  (
-    ["Get-Process -Name '\''" + $windows_proc + "'\'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"]
-    +
-    (if ($windows_service != "" and $windows_helper != "") then
-      [
-        "if ($cmd -eq '\''uninstall'\'' -and (Get-Service -Name '\''" + $windows_service + "'\'' -ErrorAction SilentlyContinue) -and (Test-Path \"$dir\\" + $windows_helper + "\")) {",
-        "    $proc = Start-Process \"$dir\\" + $windows_helper + "\" -ArgumentList '\''uninstall-service'\'' -Wait -PassThru -WindowStyle Hidden",
-        "    if ($proc.ExitCode -ne 0) {",
-        "        warn \"Failed to remove '\''" + $windows_service + "'\'' service automatically. Run as Administrator: sc.exe stop " + $windows_service + "; sc.exe delete " + $windows_service + "\"",
-        "    }",
-        "}"
-      ]
-     else [] end)
-  ) as $pre_uninstall |
-  {
-    version: $version,
-    description: $desc,
-    homepage: $homepage,
-    license: $license,
-    architecture: {
-      "64bit": {
-        url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-amd64.zip"),
-        hash: $amd64_sha
-      },
-      "arm64": {
-        url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-arm64.zip"),
-        hash: $arm64_sha
-      }
-    },
-    pre_uninstall: $pre_uninstall,
-    shortcuts: [
-      [
-        $windows_bin,
-        $name
-      ]
-    ],
-    checkver: (if $homepage == ("https://github.com/" + $repo) then "github" else { github: ("https://github.com/" + $repo) } end),
-    autoupdate: {
+  windows_proc="${windows_bin%.exe}"
+  jq --indent 4 -n \
+    --arg version "$version" \
+    --arg desc "$desc" \
+    --arg homepage "$homepage" \
+    --arg license "$license" \
+    --arg repo "$repo" \
+    --arg asset_prefix "$asset_prefix" \
+    --arg name "$name" \
+    --arg windows_bin "$windows_bin" \
+    --arg windows_proc "$windows_proc" \
+    --arg windows_service "$windows_service" \
+    --arg windows_helper "$windows_helper" \
+    --arg amd64_sha "$windows_amd64_sha" \
+    --arg arm64_sha "$windows_arm64_sha" \
+    '
+    (
+      ["Get-Process -Name '\''" + $windows_proc + "'\'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"]
+      +
+      (if ($windows_service != "" and $windows_helper != "") then
+        [
+          "if ($cmd -eq '\''uninstall'\'' -and (Get-Service -Name '\''" + $windows_service + "'\'' -ErrorAction SilentlyContinue) -and (Test-Path \"$dir\\" + $windows_helper + "\")) {",
+          "    $proc = Start-Process \"$dir\\" + $windows_helper + "\" -ArgumentList '\''uninstall-service'\'' -Wait -PassThru -WindowStyle Hidden",
+          "    if ($proc.ExitCode -ne 0) {",
+          "        warn \"Failed to remove '\''" + $windows_service + "'\'' service automatically. Run as Administrator: sc.exe stop " + $windows_service + "; sc.exe delete " + $windows_service + "\"",
+          "    }",
+          "}"
+        ]
+       else [] end)
+    ) as $pre_uninstall |
+    {
+      version: $version,
+      description: $desc,
+      homepage: $homepage,
+      license: $license,
       architecture: {
         "64bit": {
-          url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-amd64.zip")
+          url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-amd64.zip"),
+          hash: $amd64_sha
         },
         "arm64": {
-          url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-arm64.zip")
+          url: ("https://github.com/" + $repo + "/releases/download/v" + $version + "/" + $asset_prefix + "-" + $version + "-windows-arm64.zip"),
+          hash: $arm64_sha
         }
       },
-      hash: {
-        url: "$baseurl/SHA256SUMS.txt"
+      pre_uninstall: $pre_uninstall,
+      shortcuts: [
+        [
+          $windows_bin,
+          $name
+        ]
+      ],
+      checkver: (if $homepage == ("https://github.com/" + $repo) then "github" else { github: ("https://github.com/" + $repo) } end),
+      autoupdate: {
+        architecture: {
+          "64bit": {
+            url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-amd64.zip")
+          },
+          "arm64": {
+            url: ("https://github.com/" + $repo + "/releases/download/v$version/" + $asset_prefix + "-$version-windows-arm64.zip")
+          }
+        },
+        hash: {
+          url: "$baseurl/SHA256SUMS.txt"
+        }
       }
     }
-  }
-  ' > "$out_dir/bucket/${app_token}.json"
+    ' > "$out_dir/bucket/${app_token}.json"
+fi
 
-if [ -n "$winget_id" ] && [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$windows_arm64_setup_sha" =~ ^[0-9a-f]{64}$ ]]; then
+winget_ready=false
+if [ -n "$winget_id" ]; then
+  if [ "$winget_installer_type" = "portable" ]; then
+    winget_ready=true
+  elif [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$windows_arm64_setup_sha" =~ ^[0-9a-f]{64}$ ]]; then
+    winget_ready=true
+  fi
+fi
+
+if [ "$winget_ready" = true ]; then
   publisher="${winget_id%%.*}"
   pkg_subpath="${winget_id//.//}"
   first_char="$(printf '%s' "$publisher" | cut -c1 | tr '[:upper:]' '[:lower:]')"
   winget_dir="$out_dir/winget/manifests/${first_char}/${pkg_subpath}/${version}"
   mkdir -p "$winget_dir"
-  amd64_upper="$(printf '%s' "$windows_amd64_setup_sha" | tr '[:lower:]' '[:upper:]')"
-  arm64_upper="$(printf '%s' "$windows_arm64_setup_sha" | tr '[:lower:]' '[:upper:]')"
 
   cat > "$winget_dir/${winget_id}.yaml" <<EOF
 # yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
@@ -289,8 +414,41 @@ ManifestType: version
 ManifestVersion: 1.28.0
 EOF
 
-  {
-    cat <<EOF
+  if [ "$winget_installer_type" = "portable" ]; then
+    amd64_upper="$(printf '%s' "$windows_amd64_sha" | tr '[:lower:]' '[:upper:]')"
+    arm64_upper="$(printf '%s' "$windows_arm64_sha" | tr '[:lower:]' '[:upper:]')"
+    {
+      cat <<EOF
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: ${winget_id}
+PackageVersion: ${version}
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: ${windows_bin}
+  PortableCommandAlias: ${cli_bin}
+EOF
+      if [ -n "$release_date" ]; then
+        printf 'ReleaseDate: %s\n' "$release_date"
+      fi
+      cat <<EOF
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/${repo}/releases/download/v${version}/${asset_prefix}-${version}-windows-amd64.zip
+  InstallerSha256: ${amd64_upper}
+- Architecture: arm64
+  InstallerUrl: https://github.com/${repo}/releases/download/v${version}/${asset_prefix}-${version}-windows-arm64.zip
+  InstallerSha256: ${arm64_upper}
+ManifestType: installer
+ManifestVersion: 1.28.0
+EOF
+    } > "$winget_dir/${winget_id}.installer.yaml"
+  else
+    amd64_upper="$(printf '%s' "$windows_amd64_setup_sha" | tr '[:lower:]' '[:upper:]')"
+    arm64_upper="$(printf '%s' "$windows_arm64_setup_sha" | tr '[:lower:]' '[:upper:]')"
+    {
+      cat <<EOF
 # yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 
 PackageIdentifier: ${winget_id}
@@ -301,13 +459,13 @@ UpgradeBehavior: install
 ProductCode: ${winget_product_code}
 ElevationRequirement: elevatesSelf
 EOF
-    if [ -n "$release_date" ]; then
-      printf 'ReleaseDate: %s\n' "$release_date"
-    fi
-    if [ -n "$winget_install_location" ]; then
-      printf "InstallationMetadata:\n  DefaultInstallLocation: '%s'\n" "$winget_install_location"
-    fi
-    cat <<EOF
+      if [ -n "$release_date" ]; then
+        printf 'ReleaseDate: %s\n' "$release_date"
+      fi
+      if [ -n "$winget_install_location" ]; then
+        printf "InstallationMetadata:\n  DefaultInstallLocation: '%s'\n" "$winget_install_location"
+      fi
+      cat <<EOF
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/${repo}/releases/download/v${version}/${asset_prefix}-${version}-windows-amd64-setup.exe
@@ -318,7 +476,8 @@ Installers:
 ManifestType: installer
 ManifestVersion: 1.28.0
 EOF
-  } > "$winget_dir/${winget_id}.installer.yaml"
+    } > "$winget_dir/${winget_id}.installer.yaml"
+  fi
 
   en_tags="$(jq -r '(.tags // [])[] | "- " + .' <<<"$app_json")"
   {

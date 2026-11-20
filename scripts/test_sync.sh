@@ -12,6 +12,8 @@ jq -e '
   type == "array" and length > 0 and
   (map(.token) | length == (unique | length)) and
   all(.[]; (.token | type == "string" and test("^[a-z0-9-]+$")) and
+           ((.type // "cask") | . == "cask" or . == "formula") and
+           ((.winget_installer_type // "nullsoft") | . == "nullsoft" or . == "portable") and
            (.name | type == "string" and length > 0) and
            (.repo | type == "string" and test("^[^/]+/[^/]+$")) and
            (.desc | type == "string" and length > 0) and
@@ -20,17 +22,20 @@ jq -e '
            (.asset_prefix | type == "string" and length > 0))
 ' "$apps_file" >/dev/null
 
-for cask in "$repo_root"/Casks/*.rb; do
-  [ -f "$cask" ]
+shopt -s nullglob
+rb_files=("$repo_root"/Casks/*.rb "$repo_root"/Formula/*.rb)
+shopt -u nullglob
+test "${#rb_files[@]}" -gt 0
+for rb_file in "${rb_files[@]}"; do
   if command -v ruby >/dev/null 2>&1; then
-    ruby -c "$cask" >/dev/null
+    ruby -c "$rb_file" >/dev/null
   fi
 done
 
 if command -v brew >/dev/null 2>&1; then
   brew_major="$(brew --version 2>/dev/null | sed -n 's/^Homebrew \([0-9][0-9]*\)\..*/\1/p' | head -n 1)"
-  if [ -n "$brew_major" ] && [ "$brew_major" -ge 7 ]; then
-    HOMEBREW_NO_AUTO_UPDATE=1 brew style "$repo_root"/Casks/*.rb
+  if [ -n "$brew_major" ] && [ "$brew_major" -ge 4 ]; then
+    HOMEBREW_NO_AUTO_UPDATE=1 brew style "${rb_files[@]}"
   fi
 fi
 
@@ -45,7 +50,7 @@ for manifest in "$repo_root"/bucket/*.json; do
     (.architecture["64bit"].hash | test("^[0-9a-f]{64}$")) and
     .architecture["arm64"].url and
     (.architecture["arm64"].hash | test("^[0-9a-f]{64}$")) and
-    ((.shortcuts // []) | length > 0) and
+    (((.shortcuts // []) | length > 0) or ((.bin // "") != "")) and
     .checkver and
     .autoupdate.hash.url
   ' "$manifest" >/dev/null
@@ -95,27 +100,51 @@ trap cleanup EXIT
 
 while IFS= read -r app_json; do
   token="$(jq -r '.token' <<<"$app_json")"
-  app_bundle="$(jq -r '.app_bundle' <<<"$app_json")"
-  bundle_id="$(jq -r '.bundle_id' <<<"$app_json")"
+  app_type="$(jq -r '.type // "cask"' <<<"$app_json")"
+  app_bundle="$(jq -r '.app_bundle // empty' <<<"$app_json")"
+  bundle_id="$(jq -r '.bundle_id // empty' <<<"$app_json")"
   macos_min="$(jq -r '.macos_min // empty' <<<"$app_json")"
+  cli_bin="$(jq -r '.bin // .token' <<<"$app_json")"
+  windows_bin="$(jq -r '.windows_bin' <<<"$app_json")"
   windows_service="$(jq -r '.windows_service // empty' <<<"$app_json")"
   winget_id="$(jq -r '.winget_id // empty' <<<"$app_json")"
+  winget_installer_type="$(jq -r '.winget_installer_type // "nullsoft"' <<<"$app_json")"
   prefix="$(jq -r '.asset_prefix' <<<"$app_json")"
 
-  grep -Fq "app \"${app_bundle}\"" "$repo_root/Casks/${token}.rb"
-  grep -Fq 'postflight_steps do' "$repo_root/Casks/${token}.rb"
-  grep -Fq 'run "/usr/bin/xattr"' "$repo_root/Casks/${token}.rb"
-  grep -Fq 'com.apple.quarantine' "$repo_root/Casks/${token}.rb"
-  grep -Fq "uninstall quit: \"${bundle_id}\"" "$repo_root/Casks/${token}.rb"
-  if [ -n "$macos_min" ]; then
-    grep -Fq "depends_on macos: :${macos_min}" "$repo_root/Casks/${token}.rb"
-  fi
-  if [ -n "$windows_service" ]; then
-    jq -e --arg svc "$windows_service" 'any(.pre_uninstall[]; contains("$cmd -eq '\''uninstall'\''") and contains($svc))' "$repo_root/bucket/${token}.json" >/dev/null
-  fi
-
   sums_file="$tmp_dir/${token}-SHA256SUMS.txt"
-  cat > "$sums_file" <<EOF
+  if [ "$app_type" = "formula" ]; then
+    grep -Fq "bin.install \"${cli_bin}\"" "$repo_root/Formula/${token}.rb"
+    grep -Fq 'test do' "$repo_root/Formula/${token}.rb"
+    jq -e --arg wb "$windows_bin" '.bin == $wb' "$repo_root/bucket/${token}.json" >/dev/null
+
+    cat > "$sums_file" <<EOF
+1111111111111111111111111111111111111111111111111111111111111111  ${prefix}-1.0.0-darwin-arm64.tar.gz
+2222222222222222222222222222222222222222222222222222222222222222  ${prefix}-1.0.0-darwin-amd64.tar.gz
+3333333333333333333333333333333333333333333333333333333333333333  ${prefix}-1.0.0-linux-arm64.tar.gz
+4444444444444444444444444444444444444444444444444444444444444444  ${prefix}-1.0.0-linux-amd64.tar.gz
+5555555555555555555555555555555555555555555555555555555555555555  ${prefix}-1.0.0-windows-amd64.zip
+6666666666666666666666666666666666666666666666666666666666666666  ${prefix}-1.0.0-windows-arm64.zip
+EOF
+    bash "$repo_root/scripts/sync_app.sh" "$token" "1.0.0" "$sums_file" "$tmp_dir" "$apps_file" "2026-11-10"
+    test -s "$tmp_dir/Formula/${token}.rb"
+    test -s "$tmp_dir/bucket/${token}.json"
+    if command -v ruby >/dev/null 2>&1; then
+      ruby -c "$tmp_dir/Formula/${token}.rb" >/dev/null
+    fi
+  else
+    grep -Fq "app \"${app_bundle}\"" "$repo_root/Casks/${token}.rb"
+    grep -Fq 'postflight_steps do' "$repo_root/Casks/${token}.rb"
+    grep -Fq 'run "/usr/bin/xattr"' "$repo_root/Casks/${token}.rb"
+    grep -Fq 'com.apple.quarantine' "$repo_root/Casks/${token}.rb"
+    grep -Fq "uninstall quit: \"${bundle_id}\"" "$repo_root/Casks/${token}.rb"
+    if [ -n "$macos_min" ]; then
+      grep -Fq "depends_on macos: :${macos_min}" "$repo_root/Casks/${token}.rb"
+    fi
+    if [ -n "$windows_service" ]; then
+      jq -e --arg svc "$windows_service" 'any(.pre_uninstall[]; contains("$cmd -eq '\''uninstall'\''") and contains($svc))' "$repo_root/bucket/${token}.json" >/dev/null
+    fi
+
+    cat > "$sums_file" <<EOF
 1111111111111111111111111111111111111111111111111111111111111111  ${prefix}-1.0.0-macos-arm64.dmg
 2222222222222222222222222222222222222222222222222222222222222222  ${prefix}-1.0.0-macos-amd64.dmg
 3333333333333333333333333333333333333333333333333333333333333333  ${prefix}-1.0.0-linux-arm64.tar.gz
@@ -125,14 +154,25 @@ while IFS= read -r app_json; do
 7777777777777777777777777777777777777777777777777777777777777777  ${prefix}-1.0.0-windows-amd64-setup.exe
 8888888888888888888888888888888888888888888888888888888888888888  ${prefix}-1.0.0-windows-arm64-setup.exe
 EOF
-  bash "$repo_root/scripts/sync_app.sh" "$token" "1.0.0" "$sums_file" "$tmp_dir" "$apps_file" "2026-11-10"
-  test -s "$tmp_dir/Casks/${token}.rb"
-  test -s "$tmp_dir/bucket/${token}.json"
+    bash "$repo_root/scripts/sync_app.sh" "$token" "1.0.0" "$sums_file" "$tmp_dir" "$apps_file" "2026-11-10"
+    test -s "$tmp_dir/Casks/${token}.rb"
+    test -s "$tmp_dir/bucket/${token}.json"
+    if command -v ruby >/dev/null 2>&1; then
+      ruby -c "$tmp_dir/Casks/${token}.rb" >/dev/null
+    fi
+  fi
   if [ -n "$winget_id" ]; then
     publisher="${winget_id%%.*}"
     pkg_subpath="${winget_id//.//}"
     first_char="$(printf '%s' "$publisher" | cut -c1 | tr '[:upper:]' '[:lower:]')"
-    test -s "$tmp_dir/winget/manifests/${first_char}/${pkg_subpath}/1.0.0/${winget_id}.installer.yaml"
+    gen_installer="$tmp_dir/winget/manifests/${first_char}/${pkg_subpath}/1.0.0/${winget_id}.installer.yaml"
+    test -s "$gen_installer"
+    if [ "$winget_installer_type" = "portable" ]; then
+      grep -Fq "InstallerType: zip" "$gen_installer"
+      grep -Fq "NestedInstallerType: portable" "$gen_installer"
+      grep -Fq "RelativeFilePath: ${windows_bin}" "$gen_installer"
+      grep -Fq "PortableCommandAlias: ${cli_bin}" "$gen_installer"
+    fi
   fi
 done < <(jq -c '.[]' "$apps_file")
 

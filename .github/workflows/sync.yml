@@ -46,7 +46,11 @@ jobs:
       - name: Commit and push updated manifests
         run: |
           set -euo pipefail
-          git add Casks bucket winget
+          paths=()
+          for dir in Casks Formula bucket winget; do
+            [ -d "$dir" ] && paths+=("$dir")
+          done
+          git add "${paths[@]}"
           if git diff --cached --quiet; then
             echo "Manifests are already up to date."
           else

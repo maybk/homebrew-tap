@@ -28,12 +28,14 @@ jobs:
           bash scripts/test_sync.sh
           git diff --check
 
-      - name: Validate Homebrew Cask style
+      - name: Validate Homebrew Formula and Cask style
         run: |
           set -euo pipefail
-          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+          shopt -s nullglob
+          rb_files=(Casks/*.rb Formula/*.rb)
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && [ "${#rb_files[@]}" -gt 0 ]; then
             /home/linuxbrew/.linuxbrew/bin/brew update --quiet
-            HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew style Casks/*.rb
+            HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew style "${rb_files[@]}"
           fi
 
       - name: Validate Scoop and WinGet JSON Schemas
