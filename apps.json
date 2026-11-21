@@ -66,7 +66,9 @@
       "cli",
       "mcp",
       "mcp-server",
+      "model-context-protocol",
       "web-search",
+      "web-scraping",
       "markdown",
       "ai-agents",
       "agent-skills",
@@ -75,8 +77,10 @@
     "tags_zh": [
       "cli",
       "mcp",
+      "mcp-server",
       "联网检索",
       "网页提取",
+      "网页抓取",
       "markdown",
       "ai-agent",
       "搜索"
