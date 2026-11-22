@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: maybk.Veri
+PackageVersion: 0.2.2
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: veri.exe
+  PortableCommandAlias: veri
+ReleaseDate: 2026-11-22
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/maybk/veri/releases/download/v0.2.2/veri-0.2.2-windows-amd64.zip
+  InstallerSha256: E98762923130941678CF3F3BE214F4E5E8F2C9AB8983CE86EC0D51423CF5FCB6
+- Architecture: arm64
+  InstallerUrl: https://github.com/maybk/veri/releases/download/v0.2.2/veri-0.2.2-windows-arm64.zip
+  InstallerSha256: 29C5A0ACD692745A404EDF24510045C34A72BF6D6604BBB594985AA7B537D2F8
+ManifestType: installer
+ManifestVersion: 1.28.0

@@ -1,30 +1,30 @@
 class Veri < Formula
   desc "Multi-provider web search and Markdown extraction (CLI, MCP, Agent Skill)"
   homepage "https://github.com/maybk/veri"
-  version "0.2.1"
+  version "0.2.2"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/maybk/veri/releases/download/v#{version}/veri-#{version}-darwin-arm64.tar.gz"
-      sha256 "0b1ab4cce398ac83d3b0a1c6e3f61262ea437c1ff0599eb12130665f406aa6c3"
+      sha256 "f952003a82dbe94dc6111067409bc5765cae9324f7d90246aab88e7aec790794"
     end
 
     on_intel do
       url "https://github.com/maybk/veri/releases/download/v#{version}/veri-#{version}-darwin-amd64.tar.gz"
-      sha256 "f713e67f721d40fe645eefdbef808fcb0bf1d16e09d24b42e5ce2b4196312940"
+      sha256 "9dc1277f7f1fda5eefb743dc3a55072d170c0df3d2ad551c88951384a38de281"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/maybk/veri/releases/download/v#{version}/veri-#{version}-linux-arm64.tar.gz"
-      sha256 "e1634e69fae373c17ed4a6c440f9a1b46a7813c6edbdf197ee447d3ee1df785f"
+      sha256 "ff9f025e4107da83fbdf5789b68712253d6709f3244fb1ee49849f8caf3e4e7c"
     end
 
     on_intel do
       url "https://github.com/maybk/veri/releases/download/v#{version}/veri-#{version}-linux-amd64.tar.gz"
-      sha256 "a8fad13d0381e04248ba43e0bfe69c68328522cae7c8416886ee9d20a1c77c52"
+      sha256 "2a9c6a87ccfab93733cf39f1a5ed2247eb653f25677cd580389e1df7d908de1b"
     end
   end
 
