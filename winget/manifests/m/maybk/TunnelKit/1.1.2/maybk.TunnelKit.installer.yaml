@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: maybk.TunnelKit
+PackageVersion: 1.1.2
+InstallerType: nullsoft
+Scope: machine
+UpgradeBehavior: install
+ProductCode: maybkTunnelKit
+ElevationRequirement: elevatesSelf
+ReleaseDate: 2026-11-22
+InstallationMetadata:
+  DefaultInstallLocation: '%ProgramFiles%\maybk\TunnelKit'
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/maybk/tunnelkit/releases/download/v1.1.2/tunnelkit-1.1.2-windows-amd64-setup.exe
+  InstallerSha256: 085306F5989591EE51EC2729C381C0578FB162A3B31540D8944996270ED6E842
+- Architecture: arm64
+  InstallerUrl: https://github.com/maybk/tunnelkit/releases/download/v1.1.2/tunnelkit-1.1.2-windows-arm64-setup.exe
+  InstallerSha256: DCABC5D1237D2729EEB08FC86C29BFE81C8C5F3E09125D845E299B48DC62E09F
+ManifestType: installer
+ManifestVersion: 1.28.0
