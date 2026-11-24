@@ -1,16 +1,16 @@
 {
-    "version": "0.2.5",
+    "version": "0.2.6",
     "description": "Multi-provider web search and Markdown extraction (CLI, MCP, Agent Skill)",
     "homepage": "https://github.com/maybk/veri",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/maybk/veri/releases/download/v0.2.5/veri-0.2.5-windows-amd64.zip",
-            "hash": "b5231fda85675791fb424742445d66c2b4452e032f89a9e993327caa783b07bb"
+            "url": "https://github.com/maybk/veri/releases/download/v0.2.6/veri-0.2.6-windows-amd64.zip",
+            "hash": "03d8ac9a12a03af0a3cdd67b600f4d20f159ee02cdffd021f760ae8eeb5c024f"
         },
         "arm64": {
-            "url": "https://github.com/maybk/veri/releases/download/v0.2.5/veri-0.2.5-windows-arm64.zip",
-            "hash": "b177678d404c411186e75cbc3e86f61669950e72f1d0cd4675480ab0a61c64bb"
+            "url": "https://github.com/maybk/veri/releases/download/v0.2.6/veri-0.2.6-windows-arm64.zip",
+            "hash": "08943c40dc2c3c3e4b7fcf8f41f67f443f814a32607fd4b2f2fb3b3e9146151a"
         }
     },
     "bin": "veri.exe",
