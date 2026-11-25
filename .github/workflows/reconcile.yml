@@ -1,0 +1,25 @@
+name: Scheduled Reconcile
+
+on:
+  schedule:
+    # Daily off-peak fallback (03:23 UTC / 11:23 UTC+8) to avoid :00 rush hour,
+    # self-heal missed dispatches, submit deferred WinGet PRs, and clean merged WinGet branches.
+    # Isolated from sync.yml so GitHub's 60-day schedule inactivity rule never disables sync.yml.
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile package manifests and publishers
+    permissions:
+      contents: write
+    uses: ./.github/workflows/sync.yml
+    secrets:
+      WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

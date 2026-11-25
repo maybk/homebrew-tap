@@ -1,12 +1,14 @@
 name: Sync Releases
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
       app:
         description: Optional app token to sync (leave empty to sync all apps)
+        required: false
+        type: string
+      expected_version:
+        description: Optional expected MAJOR.MINOR.PATCH release version when syncing a single app
         required: false
         type: string
       force_winget_retry:
@@ -14,68 +16,188 @@ on:
         required: false
         default: false
         type: boolean
-  repository_dispatch:
-    types:
-      - release-published
+  workflow_call:
+    inputs:
+      app:
+        description: Optional app token to sync (leave empty to sync all apps)
+        required: false
+        type: string
+      expected_version:
+        description: Optional expected MAJOR.MINOR.PATCH release version when syncing a single app
+        required: false
+        type: string
+      force_winget_retry:
+        description: Re-submit WinGet PR even if a prior PR for the same version was closed unmerged
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      WINGET_GITHUB_TOKEN:
+        required: false
+      NPM_TOKEN:
+        required: false
 
 permissions:
-  contents: write
-
-concurrency:
-  group: sync-manifests
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  sync:
+  manifests:
     name: Sync package manifests from latest GitHub Releases
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    concurrency:
+      group: sync-manifests
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+    outputs:
+      head_sha: ${{ steps.commit.outputs.head_sha }}
+      changed: ${{ steps.commit.outputs.changed }}
+      has_winget: ${{ steps.plan.outputs.has_winget }}
+      has_npm: ${{ steps.plan.outputs.has_npm }}
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_APP: ${{ inputs.app || github.event.client_payload.app || '' }}
+      TARGET_APP: ${{ inputs.app || '' }}
+      EXPECTED_VERSION: ${{ inputs.expected_version || '' }}
     steps:
       - name: Check out tap repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
 
-      - name: Sync manifests and validate
+      - name: Determine downstream publisher targets
+        id: plan
+        shell: bash
         run: |
           set -euo pipefail
-          bash scripts/sync_all.sh "$TARGET_APP"
+          has_winget="$(jq -r --arg t "$TARGET_APP" 'any(.[]; ($t == "" or .token == $t) and ((.winget_id // "") != ""))' apps.json)"
+          has_npm="$(jq -r --arg t "$TARGET_APP" 'any(.[]; ($t == "" or .token == $t) and ((.npm.package // "") != ""))' apps.json)"
+          echo "has_winget=$has_winget" >> "$GITHUB_OUTPUT"
+          echo "has_npm=$has_npm" >> "$GITHUB_OUTPUT"
+
+      - name: Sync manifests and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/sync_all.sh "$TARGET_APP" "$EXPECTED_VERSION"
           bash scripts/test_sync.sh
+          shopt -s nullglob
+          rb_files=(Casks/*.rb Formula/*.rb)
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && [ "${#rb_files[@]}" -gt 0 ]; then
+            HOMEBREW_NO_AUTO_UPDATE=1 /home/linuxbrew/.linuxbrew/bin/brew style "${rb_files[@]}"
+          fi
 
       - name: Commit and push updated manifests
+        id: commit
+        shell: bash
         run: |
           set -euo pipefail
           paths=()
           for dir in Casks Formula bucket winget; do
             [ -d "$dir" ] && paths+=("$dir")
           done
-          git add "${paths[@]}"
+          if [ "${#paths[@]}" -gt 0 ]; then
+            git add "${paths[@]}"
+          fi
           if git diff --cached --quiet; then
             echo "Manifests are already up to date."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "chore: sync package manifests"
-            git push origin HEAD:main
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Submit WinGet PRs to microsoft/winget-pkgs
-        env:
-          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
-          FORCE_WINGET_RETRY: ${{ inputs.force_winget_retry == true && 'true' || 'false' }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$TARGET_APP" ]; then
+            git commit -m "chore(${TARGET_APP}): sync package manifests"
+          else
+            git commit -m "chore: sync package manifests"
+          fi
+
+          pushed=false
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              pushed=true
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Push raced with main (attempt ${attempt}/3); rebasing and retrying..."
+              git pull --rebase origin main
+            fi
+          done
+          if [ "$pushed" != "true" ]; then
+            echo "Failed to push synced manifests to main after 3 attempts" >&2
+            exit 1
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  winget:
+    name: Submit WinGet PRs to microsoft/winget-pkgs
+    needs: manifests
+    if: needs.manifests.outputs.has_winget == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: sync-winget
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+    env:
+      TARGET_APP: ${{ inputs.app || '' }}
+      WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+      FORCE_WINGET_RETRY: ${{ inputs.force_winget_retry == true && 'true' || 'false' }}
+    steps:
+      - name: Check out synced manifests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.manifests.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Submit WinGet PRs
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/submit_winget_prs.sh "$TARGET_APP" "$FORCE_WINGET_RETRY"
 
+  npm:
+    name: Publish npm packages
+    needs: manifests
+    if: needs.manifests.outputs.has_npm == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: sync-npm
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+    env:
+      TARGET_APP: ${{ inputs.app || '' }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Check out synced manifests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.manifests.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
       - name: Publish npm packages
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/publish_npm.sh "$TARGET_APP"

@@ -94,10 +94,11 @@ if command -v ruby >/dev/null 2>&1; then
 fi
 
 tmp_dir="$(mktemp -d)"
+sync_mock_pid=""
 mock_pid=""
 npm_mock_pid=""
 cleanup() {
-  for pid in "$mock_pid" "$npm_mock_pid"; do
+  for pid in "$sync_mock_pid" "$mock_pid" "$npm_mock_pid"; do
     if [ -n "$pid" ]; then
       kill "$pid" >/dev/null 2>&1 || true
       wait "$pid" >/dev/null 2>&1 || true
@@ -744,4 +745,220 @@ PY
       "@maybk/veri@1.1.0"
     ])
   ' "$npm_state" >/dev/null
+fi
+
+# Test sync_all.sh with a local mock GitHub Releases API server
+if command -v python3 >/dev/null 2>&1; then
+  sync_root="$tmp_dir/sync-all-test"
+  sync_out="$sync_root/out"
+  sync_state="$sync_root/state.json"
+  sync_port_file="$sync_root/port.txt"
+  mkdir -p "$sync_out"
+
+  cat > "$sync_state" <<'EOF'
+{
+  "veri_calls": 0,
+  "mode": "normal",
+  "sums_url_override": ""
+}
+EOF
+
+  python3 - "$sync_state" "$sync_port_file" <<'PY' &
+import http.server, json, pathlib, sys, urllib.parse
+
+state_path = pathlib.Path(sys.argv[1])
+port_path = pathlib.Path(sys.argv[2])
+
+def load_state():
+    return json.loads(state_path.read_text())
+
+def save_state(st):
+    state_path.write_text(json.dumps(st, indent=2))
+
+def veri_sums(ver):
+    return "\n".join([
+        f"1111111111111111111111111111111111111111111111111111111111111111  veri-{ver}-darwin-arm64.tar.gz",
+        f"2222222222222222222222222222222222222222222222222222222222222222  veri-{ver}-darwin-amd64.tar.gz",
+        f"3333333333333333333333333333333333333333333333333333333333333333  veri-{ver}-linux-arm64.tar.gz",
+        f"4444444444444444444444444444444444444444444444444444444444444444  veri-{ver}-linux-amd64.tar.gz",
+        f"5555555555555555555555555555555555555555555555555555555555555555  veri-{ver}-windows-amd64.zip",
+        f"6666666666666666666666666666666666666666666666666666666666666666  veri-{ver}-windows-arm64.zip",
+    ]) + "\n"
+
+class SyncMockHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def reply_json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        st = load_state()
+        base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        p = urllib.parse.urlparse(self.path).path
+
+        if p == "/repos/maybk/veri/releases/latest":
+            st["veri_calls"] += 1
+            calls = st["veri_calls"]
+            save_state(st)
+            mode = st["mode"]
+
+            if mode == "eventual_404_then_200":
+                if calls == 1:
+                    return self.reply_json(404, {"message": "Not Found"})
+                if calls == 2:
+                    ver = "0.2.5"
+                else:
+                    ver = "0.2.6"
+            elif mode == "stale_timeout":
+                ver = "0.2.5"
+            elif mode == "downgrade":
+                ver = "0.2.5"
+            elif mode == "draft":
+                return self.reply_json(200, {
+                    "tag_name": "v0.2.7",
+                    "draft": True,
+                    "prerelease": False,
+                    "published_at": "2026-11-25T00:00:00Z",
+                    "assets": [],
+                })
+            elif mode == "auth_403":
+                return self.reply_json(403, {"message": "Forbidden"})
+            elif mode == "semver_0_10_0":
+                ver = "0.10.0"
+            elif mode == "semver_0_9_0":
+                ver = "0.9.0"
+            elif mode == "digest_fallback":
+                ver = "0.2.7"
+                return self.reply_json(200, {
+                    "tag_name": f"v{ver}",
+                    "draft": False,
+                    "prerelease": False,
+                    "published_at": "2026-11-25T00:00:00Z",
+                    "assets": [
+                        {"name": f"veri-{ver}-darwin-arm64.tar.gz", "digest": "sha256:" + "1" * 64},
+                        {"name": f"veri-{ver}-darwin-amd64.tar.gz", "digest": "sha256:" + "2" * 64},
+                        {"name": f"veri-{ver}-linux-arm64.tar.gz", "digest": "sha256:" + "3" * 64},
+                        {"name": f"veri-{ver}-linux-amd64.tar.gz", "digest": "sha256:" + "4" * 64},
+                        {"name": f"veri-{ver}-windows-amd64.zip", "digest": "sha256:" + "5" * 64},
+                        {"name": f"veri-{ver}-windows-arm64.zip", "digest": "sha256:" + "6" * 64},
+                    ],
+                })
+            else:
+                ver = "0.2.6"
+
+            sums_url = st.get("sums_url_override") or f"{base}/maybk/veri/releases/download/v{ver}/SHA256SUMS.txt"
+            return self.reply_json(200, {
+                "tag_name": f"v{ver}",
+                "draft": False,
+                "prerelease": False,
+                "published_at": "2026-11-25T00:00:00Z",
+                "assets": [
+                    {"name": "SHA256SUMS.txt", "browser_download_url": sums_url},
+                ],
+            })
+
+        if p.startswith("/maybk/veri/releases/download/v") and p.endswith("/SHA256SUMS.txt"):
+            ver = p.split("/download/v", 1)[1].split("/", 1)[0]
+            data = veri_sums(ver).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        return self.reply_json(404, {"message": f"Unhandled GET {p}"})
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), SyncMockHandler)
+port_path.write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+  sync_mock_pid="$!"
+  for _ in $(seq 1 30); do
+    [ -s "$sync_port_file" ] && break
+    sleep 0.05
+  done
+  sync_mock_port="$(cat "$sync_port_file")"
+  sync_mock_url="http://127.0.0.1:${sync_mock_port}"
+
+  # 1. expected_version without target app token must fail fast
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      bash "$repo_root/scripts/sync_all.sh" "" "0.2.6" >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to reject expected_version without app token" >&2
+    exit 1
+  fi
+
+  # 2. Eventual consistency: first poll 404, second poll stale 0.2.5, third poll target 0.2.6 -> succeeds
+  jq '.mode = "eventual_404_then_200" | .veri_calls = 0 | .sums_url_override = ""' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+    SYNC_WAIT_ATTEMPTS=4 SYNC_WAIT_INTERVAL_SEC=0.05 SYNC_RETRY_SLEEP_SEC=0.05 \
+    bash "$repo_root/scripts/sync_all.sh" veri "v0.2.6" | grep -Fq "Synced veri -> v0.2.6"
+  jq -e '.version == "0.2.6"' "$sync_out/bucket/veri.json" >/dev/null
+  jq -e '.veri_calls == 3' "$sync_state" >/dev/null
+
+  # 3. Anti-downgrade guard: existing 0.2.6 must reject older 0.2.5
+  jq '.mode = "downgrade" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      bash "$repo_root/scripts/sync_all.sh" veri >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to refuse silent downgrade from 0.2.6 to 0.2.5" >&2
+    exit 1
+  fi
+
+  # 4. expected_version timeout when upstream never advances -> fails fast
+  jq '.mode = "stale_timeout" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      SYNC_WAIT_ATTEMPTS=2 SYNC_WAIT_INTERVAL_SEC=0.05 \
+      bash "$repo_root/scripts/sync_all.sh" veri "0.2.7" >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to time out when expected_version never appears" >&2
+    exit 1
+  fi
+
+  # 5. Untrusted SHA256SUMS.txt URL (tag mismatch) -> rejected
+  jq --arg u "${sync_mock_url}/maybk/veri/releases/download/v0.2.5/SHA256SUMS.txt" \
+    '.mode = "normal" | .veri_calls = 0 | .sums_url_override = $u' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      bash "$repo_root/scripts/sync_all.sh" veri >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to reject SHA256SUMS.txt URL from a different tag" >&2
+    exit 1
+  fi
+
+  # 6. Draft release -> skipped safely
+  jq '.mode = "draft" | .veri_calls = 0 | .sums_url_override = ""' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+    bash "$repo_root/scripts/sync_all.sh" veri | grep -Fq "Skipping veri"
+
+  # 7. Asset digest fallback (when SHA256SUMS.txt asset is absent) -> upgrades 0.2.6 -> 0.2.7
+  jq '.mode = "digest_fallback" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+    bash "$repo_root/scripts/sync_all.sh" veri "0.2.7" | grep -Fq "Synced veri -> v0.2.7"
+  jq -e '.version == "0.2.7"' "$sync_out/bucket/veri.json" >/dev/null
+
+  # 8. HTTP 403 fails fast without wasting expected_version polling attempts
+  jq '.mode = "auth_403" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      SYNC_WAIT_ATTEMPTS=4 SYNC_WAIT_INTERVAL_SEC=0.05 \
+      bash "$repo_root/scripts/sync_all.sh" veri "0.2.8" >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to fail fast on HTTP 403" >&2
+    exit 1
+  fi
+  jq -e '.veri_calls == 1' "$sync_state" >/dev/null
+
+  # 9. Numeric SemVer comparison: 0.2.7 -> 0.10.0 succeeds, and 0.10.0 -> 0.9.0 is rejected as downgrade
+  jq '.mode = "semver_0_10_0" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+    bash "$repo_root/scripts/sync_all.sh" veri "0.10.0" | grep -Fq "Synced veri -> v0.10.0"
+  jq -e '.version == "0.10.0"' "$sync_out/bucket/veri.json" >/dev/null
+
+  jq '.mode = "semver_0_9_0" | .veri_calls = 0' "$sync_state" > "$sync_state.tmp" && mv "$sync_state.tmp" "$sync_state"
+  if SYNC_GITHUB_API_URL="$sync_mock_url" SYNC_RELEASE_BASE_URL="$sync_mock_url" SYNC_OUTPUT_DIR="$sync_out" \
+      bash "$repo_root/scripts/sync_all.sh" veri >/dev/null 2>&1; then
+    echo "Expected sync_all.sh to reject numeric SemVer downgrade from 0.10.0 to 0.9.0" >&2
+    exit 1
+  fi
 fi
